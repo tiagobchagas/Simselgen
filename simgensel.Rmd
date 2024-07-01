@@ -7,13 +7,14 @@ editor_options:
   chunk_output_type: console
 ---
 
-## Simulating two traits
+# Simulating two traits
 
-Compound Simmetry
+##Compound Simmetry
 ```{r cs}
 library(FieldSimR)
 library(AlphaSimR)
 library(ggplot2)
+library(tidyverse)
 ntraits <- 2 # Number of traits.
 nenvs <- 3 # Number of environments.
 nreps <- c(2, 2, 3) # Number of replicates of each genotype in environments 1, 2, and 3.
@@ -111,8 +112,8 @@ ggplot(gv_df, aes(x = gv.Trait2, fill = factor(env))) +
 
 ```
 
-# errors
-```{r}
+## errors
+```{r, eval=FALSE}
 ntraits <- 2 # Number of traits
 nenvs <- 3 # Number of environments
 nblocks <- c(2, 2, 3) # Number of blocks per environment
@@ -297,29 +298,33 @@ factorial_plan <- as.matrix(expand.grid(A = pool_A@id, B = pool_B@id)) # Factori
 
 hybrid_pop <- makeCross(pop = dh_lines, crossPlan = factorial_plan, nProgeny = 1) # Hybrid genotypes.
 
-gv_df <- unstr_asr_output(
+gv_df_us <- unstr_asr_output(
   pop = hybrid_pop,
   ntraits = ntraits,
   nenvs = nenvs,
   nreps = nreps
 )
+
+
 #
-ggplot(gv_df, aes(x = gv.Trait1, fill = factor(env))) +
+ggplot(gv_df_us, aes(x = gv.Trait1, fill = factor(env))) +
   geom_histogram(color = "#e9ecef", alpha = 0.8, position = "identity", bins = 50) +
   scale_fill_manual(values = c("violetred3", "goldenrod3", "skyblue2")) +
   labs(x = "US Genetic values for grain yield (t/ha)", y = "Count", fill = "Environment")
 
-ggplot(gv_df, aes(x = gv.Trait2, fill = factor(env))) +
+ggplot(gv_df_us, aes(x = gv.Trait2, fill = factor(env))) +
   geom_histogram(color = "#e9ecef", alpha = 0.8, position = "identity", bins = 50) +
   scale_fill_manual(values = c("violetred3", "goldenrod3", "skyblue2")) +
   labs(x = "US Genetic values for plant heigth (cm)", y = "Count", fill = "Environment")
 ```
 
 # Applying Selection Index
+## prediction
 ```{r}
 library(xgboost)
 data(agaricus.train, package='xgboost')
 data(agaricus.test, package='xgboost')
+
 train <- agaricus.train
 test <- agaricus.test
 
@@ -358,19 +363,56 @@ bst <- xgb.train(data=dtrain, max.depth=2, eta=1, nthread = 2, nrounds=2, watchl
 bst <- xgb.train(data=dtrain, max.depth=2, eta=1, nthread = 2, nrounds=2, watchlist=watchlist, eval.metric = "error", eval.metric = "logloss", objective = "binary:logistic")
 ```
 
-#classification example
+# select genotypes CS
+```{r}
+
+geno = gv_df |> group_by(env) |> mutate(rank.gy =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |>  mutate(rank.ph =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |> mutate(rank.sum = rowSums(cbind(rank.ph,rank.gy))) |>  ungroup() 
+
+ind.sel =geno |> group_by(id) |>  summarise(avg=sum(rank.sum)) 
+
+geno = geno |>  pivot_wider(values_from = c(gv.Trait1,gv.Trait2), names_from = c(env) ) |> left_join(ind.sel, by="id") |> as.data.frame()
+
+
+str(ind.sel)
+```
+
+
+##classification example CS
 ```{r}
 library(xgboost)
 data(iris)
+str(iris)
+genos = geno[,-c(1:5)]
 
-# Convert the Species factor to an integer class starting at 0
-# This is picky, but it's a requirement for XGBoost
+str(genos)
+#geno$id = as.numeric(geno$id)
+
+genos$avg = as.factor(genos$avg)
+str(genos)
+
 species = iris$Species
 label = as.integer(iris$Species)-1
 iris$Species = NULL
+# Convert the Species factor to an integer class starting at 0
+# This is picky, but it's a requirement for XGBoost
+avg = genos$avg
 
+label = as.integer(genos$avg)-1
+genos$avg = NULL
+
+n = nrow(genos)
+train.index = sample(n,floor(0.75*n))
+train.data = as.matrix(genos[train.index,])
+train.label = label[train.index]
+test.data = as.matrix(genos[-train.index,])
+test.label = label[-train.index]
+
+# Transform the two data sets into xgb.Matrix
+xgb.train = xgb.DMatrix(data=train.data,label=train.label)
+xgb.test = xgb.DMatrix(data=test.data,label=test.label)
+xgb.test
 # Define the parameters for multinomial classification
-num_class = length(levels(species))
+num_class = length(levels(avg))
 params = list(
   booster="gbtree",
   eta=0.001,
@@ -397,6 +439,136 @@ xgb.fit=xgb.train(
 # Review the final model and results
 xgb.fit
 
+# Predict outcomes with the test data
+xgb.pred = predict(xgb.fit,test.data,reshape=T)
+xgb.pred = as.data.frame(xgb.pred)
+colnames(xgb.pred) = levels(avg)
 
+# Use the predicted label with the highest probability
+xgb.pred$prediction = apply(xgb.pred,1,function(x) colnames(xgb.pred)[which.max(x)])
+xgb.pred$label = levels(avg)[test.label+1]
+
+# Calculate the final accuracy
+result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
+
+
+```
+
+
+# select genotypes US
+```{r}
+
+geno_us = gv_df_us |> group_by(env) |> mutate(rank.gy =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |>  mutate(rank.ph =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |> mutate(rank.sum = rowSums(cbind(rank.ph,rank.gy))) |>  ungroup() 
+
+ind.sel =geno_us |> group_by(id) |>  summarise(avg=sum(rank.sum)) 
+
+geno_us = geno_us |>  pivot_wider(values_from = c(gv.Trait1,gv.Trait2), names_from = c(env) ) |> left_join(ind.sel, by="id") |> as.data.frame()
+
+
+str(ind.sel)
+```
+
+# classification
+```{r}
+##classification example CS
+
+library(xgboost)
+data(iris)
+str(iris)
+genos = geno_us[,-c(1:5)]
+
+#geno$id = as.numeric(geno$id)
+
+genos$avg = as.factor(genos$avg)
+str(genos)
+
+species = iris$Species
+label = as.integer(iris$Species)-1
+iris$Species = NULL
+# Convert the Species factor to an integer class starting at 0
+# This is picky, but it's a requirement for XGBoost
+avg = genos$avg
+
+label = as.integer(genos$avg)-1
+genos$avg = NULL
+
+n = nrow(genos)
+train.index = sample(n,floor(0.75*n))
+train.data = as.matrix(genos[train.index,])
+train.label = label[train.index]
+test.data = as.matrix(genos[-train.index,])
+test.label = label[-train.index]
+
+# Transform the two data sets into xgb.Matrix
+xgb.train = xgb.DMatrix(data=train.data,label=train.label)
+xgb.test = xgb.DMatrix(data=test.data,label=test.label)
+xgb.test
+# Define the parameters for multinomial classification
+num_class = length(levels(avg))
+params = list(
+  booster="gbtree",
+  eta=0.001,
+  max_depth=5,
+  gamma=3,
+  subsample=0.75,
+  colsample_bytree=1,
+  objective="multi:softprob",
+  eval_metric="mlogloss",
+  num_class=num_class
+)
+
+# Train the XGBoost classifer
+xgb.fit=xgb.train(
+  params=params,
+  data=xgb.train,
+  nrounds=10000,
+  nthreads=1,
+  early_stopping_rounds=10,
+  watchlist=list(val1=xgb.train,val2=xgb.test),
+  verbose=0
+)
+
+# Review the final model and results
+xgb.fit
+
+# Predict outcomes with the test data
+xgb.pred = predict(xgb.fit,test.data,reshape=T)
+xgb.pred = as.data.frame(xgb.pred)
+colnames(xgb.pred) = levels(avg)
+
+# Use the predicted label with the highest probability
+xgb.pred$prediction = apply(xgb.pred,1,function(x) colnames(xgb.pred)[which.max(x)])
+xgb.pred$label = levels(avg)[test.label+1]
+
+# Calculate the final accuracy
+result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
+
+
+```
+
+#plots
+```{r}
+head(gv_df)
+head(gv_df_us)
+
+var(gv_df_us$gv.Trait1)
+var(gv_df$gv.Trait1)
+
+# Summarize data to calculate variance for each group
+gv_df |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
+  labs(title = "CS Variance of gv.Trait1 by Environment", x = "Environment", y = "Variance") +
+  ylim(0, var(gv_df_us$gv.Trait1)+0.1)
+
+gv_df_us |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
+  labs(title = "US Variance of gv.Trait1 by Environment", x = "Environment", y = "Variance") +
+  ylim(0, var(gv_df_us$gv.Trait1)+0.1)
+
+# Create a ggplot to visualize the variance
+ggplot(summarized_df, aes(x = group, y = variance)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  theme_minimal() +
+  labs(title = "Variance of Value by Group", x = "Group", y = "Variance")
 ```
 
