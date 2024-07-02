@@ -15,6 +15,8 @@ library(FieldSimR)
 library(AlphaSimR)
 library(ggplot2)
 library(tidyverse)
+library(caret)
+library(ggpubr)
 ntraits <- 2 # Number of traits.
 nenvs <- 3 # Number of environments.
 nreps <- c(2, 2, 3) # Number of replicates of each genotype in environments 1, 2, and 3.
@@ -320,7 +322,7 @@ ggplot(gv_df_us, aes(x = gv.Trait2, fill = factor(env))) +
 
 # Applying Selection Index
 ## prediction
-```{r}
+```{r eval=FALSE}
 library(xgboost)
 data(agaricus.train, package='xgboost')
 data(agaricus.test, package='xgboost')
@@ -377,7 +379,8 @@ str(ind.sel)
 ```
 
 
-##classification example CS
+## classification
+## CS model
 ```{r}
 library(xgboost)
 data(iris)
@@ -406,12 +409,14 @@ train.data = as.matrix(genos[train.index,])
 train.label = label[train.index]
 test.data = as.matrix(genos[-train.index,])
 test.label = label[-train.index]
-
+parallel::detectCores()
+#nthread <- (parallel::detectCores())-1
 # Transform the two data sets into xgb.Matrix
 xgb.train = xgb.DMatrix(data=train.data,label=train.label)
 xgb.test = xgb.DMatrix(data=test.data,label=test.label)
 xgb.test
 # Define the parameters for multinomial classification
+
 num_class = length(levels(avg))
 params = list(
   booster="gbtree",
@@ -436,6 +441,7 @@ xgb.fit=xgb.train(
   verbose=0
 )
 
+
 # Review the final model and results
 xgb.fit
 
@@ -452,7 +458,29 @@ xgb.pred$label = levels(avg)[test.label+1]
 result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
 print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
 
+pred=factor(xgb.pred$prediction, levels = c("0","4","6","8","10","14") )
+test=factor(xgb.pred$label, levels = c("0","4","6","8","10","14"))
 
+
+xtab=table(pred,test) 
+str(xtab)
+# Convert the confusion matrix to a long format
+xtab_melt <- as.data.frame(as.table(xtab))
+
+# Rename columns for better understanding
+colnames(xtab_melt) <- c("Predicted", "Actual", "Count")
+csmat=ggplot(xtab_melt, aes(x = Actual, y = Predicted, fill = Count)) +
+  geom_tile() +
+  geom_text(aes(label = Count), color = "white") +
+  scale_fill_gradientn(colors = c("lightblue", "yellow2", "orange")) +
+  theme_minimal() +
+  labs(title = "Matriz de confusão do modelo de Simetria Composta", x = "Atual", y = "Predito", fill="Contagem")
+
+
+cscm=confusionMatrix(xtab) 
+print(cscm)
+plot(csmat)
+ggsave(plot = csmat, filename = "confusionmatrix_modelcs.png",device = "png",dpi = "retina")
 ```
 
 
@@ -470,8 +498,9 @@ str(ind.sel)
 ```
 
 # classification
+## US model
 ```{r}
-##classification example CS
+##classification example US
 
 library(xgboost)
 data(iris)
@@ -542,10 +571,33 @@ xgb.pred$prediction = apply(xgb.pred,1,function(x) colnames(xgb.pred)[which.max(
 xgb.pred$label = levels(avg)[test.label+1]
 
 # Calculate the final accuracy
-result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
-print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
+result_us = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result_us)))
+
+pred=factor(xgb.pred$prediction, levels = c("0","4","6","8","10","14") )
+test=factor(xgb.pred$label, levels = c("0","4","6","8","10","14"))
 
 
+xtab=table(pred,test)
+
+uscm=confusionMatrix(xtab)
+
+# Convert the confusion matrix to a long format
+xtab_melt <- as.data.frame(as.table(xtab))
+
+# Rename columns for better understanding
+colnames(xtab_melt) <- c("Predicted", "Actual", "Count")
+
+usmat=ggplot(xtab_melt, aes(x = Actual, y = Predicted, fill = Count)) +
+  geom_tile() +
+  geom_text(aes(label = Count), color = "white") +
+  scale_fill_gradientn(colors = c("lightblue", "yellow2", "orange")) +
+  theme_minimal() +
+  labs(title = "Matriz de confusão do modelo de não estrutuado", x = "Atual", y = "Predito", fill="Contagem")
+
+ggsave(plot = usmat, filename = "confusionmat_usmodel.png",device = "png",dpi = "retina")
+print(uscm)
+plot(usmat)
 ```
 
 #plots
@@ -557,18 +609,28 @@ var(gv_df_us$gv.Trait1)
 var(gv_df$gv.Trait1)
 
 # Summarize data to calculate variance for each group
-gv_df |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
-  labs(title = "CS Variance of gv.Trait1 by Environment", x = "Environment", y = "Variance") +
-  ylim(0, var(gv_df_us$gv.Trait1)+0.1)
+gvdf=gv_df |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
+  labs(title = "Modelo de simetria composta - PROD", x = "Ambiente", y = "Variância") +
+  ylim(0, var(gv_df_us$gv.Trait1)+0.01)
 
-gv_df_us |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
-  labs(title = "US Variance of gv.Trait1 by Environment", x = "Environment", y = "Variance") +
-  ylim(0, var(gv_df_us$gv.Trait1)+0.1)
+gvdfus=gv_df_us |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
+  labs(title = "Modelo não estruturado - PROD", x = "Ambiente", y = "Variância") +
+  ylim(0, var(gv_df_us$gv.Trait1)+0.01)
 
-# Create a ggplot to visualize the variance
-ggplot(summarized_df, aes(x = group, y = variance)) +
-  geom_bar(stat = "identity", fill = "skyblue") +
-  theme_minimal() +
-  labs(title = "Variance of Value by Group", x = "Group", y = "Variance")
+plot1=ggarrange(gvdf,gvdfus)
+
+ggsave(plot = plot1, filename = "plotvartrais1.png",device = "png",dpi = "retina")
+# Summarize data to calculate variance for each group
+gvdf2=gv_df |> group_by(env) |> summarise(variance =var(gv.Trait2)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
+  labs(title = "Modelo de simetria composta - AP", x = "Ambiente", y = "Variância") +
+  ylim(0, var(gv_df_us$gv.Trait2)-15)
+
+gvdfus2=gv_df_us |> group_by(env) |> summarise(variance =var(gv.Trait2)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
+  labs(title = "Modelo não estruturado - AP", x = "Ambiente", y = "Variância") +
+  ylim(0, var(gv_df_us$gv.Trait2)-15)
+
+plot2=ggarrange(gvdf2,gvdfus2)
+
+ggsave(plot = plot2, filename = "plotvartrais.png",device = "png",dpi = "retina")
 ```
 
