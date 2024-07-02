@@ -1,22 +1,28 @@
 ---
-title: "Simulation of selected genotypes"
+title: "Machine learning to classify maize hybrids"
 author: "José Tiago"
 date: "2024-06-25"
-output: html_document
-editor_options: 
+output:
+  word_document: default
+  html_document: default
+editor_options:
   chunk_output_type: console
 ---
 
 # Simulating two traits
 
-##Compound Simmetry
-```{r cs}
+```{r, results='hide'}
 library(FieldSimR)
 library(AlphaSimR)
 library(ggplot2)
 library(tidyverse)
 library(caret)
 library(ggpubr)
+```
+
+##Compound Simmetry
+```{r cs, eval=FALSE}
+
 ntraits <- 2 # Number of traits.
 nenvs <- 3 # Number of environments.
 nreps <- c(2, 2, 3) # Number of replicates of each genotype in environments 1, 2, and 3.
@@ -101,23 +107,30 @@ gv_df <- compsym_asr_output(
   nenvs = nenvs,
   nreps = nreps
 )
+```
 
+
+```{r csplots}
+library(ggplot2)
+gv_df=readRDS("gv_df.rds")
 P1cs=ggplot(gv_df, aes(x = gv.Trait1, fill = factor(env))) +
   geom_histogram(color = "#e9ecef", alpha = 0.8, position = "identity", bins = 50) +
   scale_fill_manual(values = c("violetred3", "goldenrod3", "skyblue2")) +
   labs(x = "Produtividade de grãos (t/ha)", y = "Contagem", fill = "Ambiente")
-plot(P1cs)
+
 P2cs=ggplot(gv_df, aes(x = gv.Trait2, fill = factor(env))) +
   geom_histogram(color = "#e9ecef", alpha = 0.8, position = "identity", bins = 50) +
   scale_fill_manual(values = c("violetred3", "goldenrod3", "skyblue2")) +
   labs(x = "Altura de planta (cm)", y = "Contagem", fill = "Ambiente")
-plot(P2cs)
-Plotscs=ggarrange(P1cs,P2cs)
+
+Plotscs=ggarrange(P1cs,P2cs, common.legend = T)
 ggsave(plot = Plotscs, filename = "plotcsmodel.png",device = "png",dpi = "retina")
+saveRDS(gv_df,  file = "gv_df.rds")
+plot(Plotscs)
 ```
 
 ## errors
-```{r, eval=FALSE}
+```{r, eval=FALSE, echo=FALSE}
 ntraits <- 2 # Number of traits
 nenvs <- 3 # Number of environments
 nblocks <- c(2, 2, 3) # Number of blocks per environment
@@ -210,9 +223,15 @@ ggplot(pheno_env1, aes(x = y.Trait1, fill = factor(block))) +
 ```
 
 
+```{r}
+gv_df |>  filter(id=="41") |> View()
+gv_df_us |>  filter(id=="41") |> View()
+
+```
+
 ## Unstructured
 
-```{r us}
+```{r us, eval=FALSE}
 ntraits <- 2 # Number of traits.
 nenvs <- 3 # Number of environments.
 nreps <- c(2, 2, 3) # Number of replicates tested within environments 1, 2 and 3.
@@ -308,27 +327,36 @@ gv_df_us <- unstr_asr_output(
   nenvs = nenvs,
   nreps = nreps
 )
+```
 
+
+```{r us plots}
+gv_df_us=readRDS("gv_df_us.rds")
+
+citation("xgboost")
 
 #
 P1us=ggplot(gv_df_us, aes(x = gv.Trait1, fill = factor(env))) +
   geom_histogram(color = "#e9ecef", alpha = 0.8, position = "identity", bins = 50) +
   scale_fill_manual(values = c("violetred3", "goldenrod3", "skyblue2")) +
   labs(x = "Produtividade de grãos (t/ha)", y = "Contagem", fill = "Ambiente")
-plot(P1us)
+
 P2us=ggplot(gv_df_us, aes(x = gv.Trait2, fill = factor(env))) +
   geom_histogram(color = "#e9ecef", alpha = 0.8, position = "identity", bins = 50) +
   scale_fill_manual(values = c("violetred3", "goldenrod3", "skyblue2")) +
   labs(x = "Altura de planta (cm)", y = "Contagem", fill = "Ambiente")
-plot(P2us)
 
-Plotsus=ggarrange(P1us,P2us)
+
+Plotsus=ggarrange(P1us,P2us, common.legend = T)
 ggsave(plot = Plotsus, filename = "usmodel.png",device = "png",dpi = "retina")
+
+plot(Plotsus)
+saveRDS(gv_df_us,  file = "gv_df_us.rds")
 ```
 
 # Applying Selection Index
 ## prediction
-```{r eval=FALSE}
+```{r eval=FALSE, echo=FALSE}
 library(xgboost)
 data(agaricus.train, package='xgboost')
 data(agaricus.test, package='xgboost')
@@ -373,35 +401,34 @@ bst <- xgb.train(data=dtrain, max.depth=2, eta=1, nthread = 2, nrounds=2, watchl
 
 # select genotypes CS
 ```{r}
-
-geno = gv_df |> group_by(env) |> mutate(rank.gy =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |>  mutate(rank.ph =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |> mutate(rank.sum = rowSums(cbind(rank.ph,rank.gy))) |>  ungroup() 
-
-ind.sel =geno |> group_by(id) |>  summarise(avg=sum(rank.sum)) 
-
-geno = geno |>  pivot_wider(values_from = c(gv.Trait1,gv.Trait2), names_from = c(env) ) |> left_join(ind.sel, by="id") |> as.data.frame()
+#gv_df=readRDS("gv_df.rds")
+geno = gv_df |> group_by(env, rep,id) |> mutate(rank.gy =ifelse(gv.Trait1>mean(gv_df[which(gv_df$env==cur_group()$env),"gv.Trait1"]), 1,0)) |>  mutate(rank.ph =ifelse(gv.Trait2>mean(gv_df[which(gv_df$env==cur_group()$env),"gv.Trait2"]), 1,0)) |> ungroup() 
 
 
-str(ind.sel)
+
+ind.sel =geno |> group_by(id,rep) |>  mutate(avg=sum(rank.gy,rank.ph)) |> ungroup()
+#gv_df |> filter(id=="41") |> View()
+genos = ind.sel |>   pivot_wider(values_from = c(gv.Trait1,gv.Trait2), names_from = c(env) ) |> as.data.frame() 
+
+
+
 ```
 
 
 ## classification
 ## CS model
-```{r}
+```{r, results='hide'}
 library(xgboost)
-data(iris)
-str(iris)
-genos = geno[,-c(1:5)]
 
-str(genos)
+genos = genos[,-c(1:4)]
+
+
 #geno$id = as.numeric(geno$id)
 
 genos$avg = as.factor(genos$avg)
-str(genos)
 
-species = iris$Species
-label = as.integer(iris$Species)-1
-iris$Species = NULL
+
+
 # Convert the Species factor to an integer class starting at 0
 # This is picky, but it's a requirement for XGBoost
 avg = genos$avg
@@ -459,13 +486,16 @@ colnames(xgb.pred) = levels(avg)
 # Use the predicted label with the highest probability
 xgb.pred$prediction = apply(xgb.pred,1,function(x) colnames(xgb.pred)[which.max(x)])
 xgb.pred$label = levels(avg)[test.label+1]
+```
 
 # Calculate the final accuracy
+```{r}
+
 result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
 print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
 
-pred=factor(xgb.pred$prediction, levels = c("0","4","6","8","10","14") )
-test=factor(xgb.pred$label, levels = c("0","4","6","8","10","14"))
+pred=factor(xgb.pred$prediction, levels = c("0","1","2","3","4","5","6") )
+test=factor(xgb.pred$label, levels = c("0","1","2","3","4","5","6"))
 
 
 xtab=table(pred,test) 
@@ -492,35 +522,28 @@ ggsave(plot = csmat, filename = "confusionmatrix_modelcs.png",device = "png",dpi
 
 # select genotypes US
 ```{r}
+gv_df_us=readRDS("gv_df_us.rds")
 
-geno_us = gv_df_us |> group_by(env) |> mutate(rank.gy =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |>  mutate(rank.ph =ifelse(gv.Trait1>mean(gv.Trait1), 1,0)) |> mutate(rank.sum = rowSums(cbind(rank.ph,rank.gy))) |>  ungroup() 
+geno_us = gv_df_us |> group_by(env, rep,id) |> mutate(rank.gy =ifelse(gv.Trait1>mean(gv_df_us[which(gv_df_us$env==cur_group()$env),"gv.Trait1"]), 1,0)) |>  mutate(rank.ph =ifelse(gv.Trait2>mean(gv_df_us[which(gv_df_us$env==cur_group()$env),"gv.Trait2"]), 1,0)) |>   ungroup() 
 
-ind.sel =geno_us |> group_by(id) |>  summarise(avg=sum(rank.sum)) 
+ind.sel =geno_us |> group_by(id,rep) |>  mutate(avg=sum(rank.gy,rank.ph)) |> ungroup()
 
-geno_us = geno_us |>  pivot_wider(values_from = c(gv.Trait1,gv.Trait2), names_from = c(env) ) |> left_join(ind.sel, by="id") |> as.data.frame()
+genos_us = ind.sel |>   pivot_wider(values_from = c(gv.Trait1,gv.Trait2), names_from = c(env) ) |> as.data.frame() 
 
 
-str(ind.sel)
 ```
 
 # classification
 ## US model
-```{r}
+```{r, results='hide'}
 ##classification example US
 
-library(xgboost)
-data(iris)
-str(iris)
-genos = geno_us[,-c(1:5)]
+genos = genos_us[,-c(1:4)]
 
 #geno$id = as.numeric(geno$id)
 
 genos$avg = as.factor(genos$avg)
-str(genos)
 
-species = iris$Species
-label = as.integer(iris$Species)-1
-iris$Species = NULL
 # Convert the Species factor to an integer class starting at 0
 # This is picky, but it's a requirement for XGBoost
 avg = genos$avg
@@ -575,13 +598,16 @@ colnames(xgb.pred) = levels(avg)
 # Use the predicted label with the highest probability
 xgb.pred$prediction = apply(xgb.pred,1,function(x) colnames(xgb.pred)[which.max(x)])
 xgb.pred$label = levels(avg)[test.label+1]
+```
 
 # Calculate the final accuracy
+```{r}
+
 result_us = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
 print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result_us)))
 
-pred=factor(xgb.pred$prediction, levels = c("0","4","6","8","10","14") )
-test=factor(xgb.pred$label, levels = c("0","4","6","8","10","14"))
+pred=factor(xgb.pred$prediction, levels = c("0","1","2","3","4","5","6") )
+test=factor(xgb.pred$label, levels = c("0","1","2","3","4","5","6"))
 
 
 xtab=table(pred,test)
@@ -616,11 +642,11 @@ var(gv_df$gv.Trait1)
 
 # Summarize data to calculate variance for each group
 gvdf=gv_df |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
-  labs(title = "Modelo de simetria composta - PROD", x = "Ambiente", y = "Variância") +
+  labs(title = "Simetria composta - PROD", x = "Ambiente", y = "Variância") +
   ylim(0, var(gv_df_us$gv.Trait1)+0.01)
 
 gvdfus=gv_df_us |> group_by(env) |> summarise(variance =var(gv.Trait1)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
-  labs(title = "Modelo não estruturado - PROD", x = "Ambiente", y = "Variância") +
+  labs(title = "Não estruturado - PROD", x = "Ambiente", y = "Variância") +
   ylim(0, var(gv_df_us$gv.Trait1)+0.01)
 
 plot1=ggarrange(gvdf,gvdfus)
@@ -628,12 +654,12 @@ plot(plot1)
 ggsave(plot = plot1, filename = "plotvartrais1.png",device = "png",dpi = "retina")
 # Summarize data to calculate variance for each group
 gvdf2=gv_df |> group_by(env) |> summarise(variance =var(gv.Trait2)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
-  labs(title = "Modelo de simetria composta - AP", x = "Ambiente", y = "Variância") +
-  ylim(0, var(gv_df_us$gv.Trait2)-15)
+  labs(title = "Simetria composta - AP", x = "Ambiente", y = "Variância") +
+  ylim(0, var(gv_df_us$gv.Trait2)-19)
 
 gvdfus2=gv_df_us |> group_by(env) |> summarise(variance =var(gv.Trait2)) |> ggplot() + geom_col(aes(x=env, y=variance),fill="skyblue") +   theme_minimal() +
-  labs(title = "Modelo não estruturado - AP", x = "Ambiente", y = "Variância") +
-  ylim(0, var(gv_df_us$gv.Trait2)-15)
+  labs(title = "Não estruturado - AP", x = "Ambiente", y = "Variância") +
+  ylim(0, var(gv_df_us$gv.Trait2)-19)
 
 plot2=ggarrange(gvdf2,gvdfus2)
 
