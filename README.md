@@ -2,7 +2,7 @@
 Simulation and genotypic selection using machine learning predictive models
 
 <div id="header" align="center">
-  <img src="https://agrihunt.com/wp-content/uploads/2017/01/maize-hybrid-article-768x455.jpg" width="1000"/>
+  <img src="https://agrihunt.com/wp-content/uploads/2017/01/maize-hybrid-article-768x455.jpg" width="500"/>
 </div>
 
 
@@ -23,7 +23,7 @@ install.packages(c("FieldSimR", "AlphaSimR", "tidyverse", "caret", "ggpubr"))
 ## Usage
 
 3. Go to pipeline 
-simgensel.html
+[https://github.com/tiagobchagas/Simselgen.git](https://github.com/tiagobchagas/Simselgen.git)
 
 <!-- condensed for clarity! -->
 <blockquote class="callout callout_default" theme="📘">
