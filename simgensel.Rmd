@@ -14,7 +14,6 @@ editor_options:
 ```{r, results='hide'}
 library(FieldSimR)
 library(AlphaSimR)
-library(ggplot2)
 library(tidyverse)
 library(caret)
 library(ggpubr)
